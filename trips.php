@@ -40,8 +40,9 @@ function palette_color(int $i): string {
     return $palette[$i % count($palette)];
 }
 
+// --- Input ---
 if ($argc < 2) {
-    fwrite(STDERR, "Usage: php {$argv[0]} points.csv > trips.geojson\n");
+    fwrite(STDERR, "Usage: php {$argv[0]} points.csv\n");
     exit(1);
 }
 
@@ -51,8 +52,14 @@ if (!is_readable($csvPath)) {
     exit(1);
 }
 
+// --- Output file name ---
+$outPath = preg_replace('/\.csv$/i', '.geojson', $csvPath);
+if ($outPath === $csvPath) $outPath .= '.geojson';
+
+// --- Rejects log ---
 $rejectLog = fopen('rejects.log', 'w') or exit("Cannot open rejects.log\n");
 
+// --- Read CSV ---
 $fh = new SplFileObject($csvPath, 'r');
 $fh->setFlags(SplFileObject::READ_CSV | SplFileObject::SKIP_EMPTY | SplFileObject::DROP_NEW_LINE);
 $header = $fh->fgetcsv();
@@ -96,13 +103,14 @@ while (!$fh->eof()) {
 }
 fclose($rejectLog);
 
+// --- Sort ---
 usort($points, fn($a,$b) => $a['t'] <=> $b['t'] ?: $a['i'] <=> $b['i']);
 if (!$points) {
-    echo json_encode(['type'=>'FeatureCollection','features'=>[]], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    file_put_contents($outPath, json_encode(['type'=>'FeatureCollection','features'=>[]], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
     exit;
 }
 
-// Split trips
+// --- Split trips ---
 $trips = [];
 $current = [];
 $prev = null;
@@ -123,7 +131,7 @@ foreach ($points as $p) {
 }
 if ($current) $trips[] = $current;
 
-// Build GeoJSON
+// --- Build GeoJSON ---
 $features = [];
 $tripIndex = 0;
 foreach ($trips as $trip) {
@@ -163,4 +171,11 @@ foreach ($trips as $trip) {
     ];
 }
 
-echo json_encode(['type'=>'FeatureCollection','features'=>$features], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+// --- Write GeoJSON to file ---
+$geojson = json_encode(['type'=>'FeatureCollection','features'=>$features], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+if (file_put_contents($outPath, $geojson) === false) {
+    fwrite(STDERR, "ERROR: Failed to write $outPath\n");
+    exit(1);
+}
+
+fwrite(STDERR, "GeoJSON written to $outPath\n");
